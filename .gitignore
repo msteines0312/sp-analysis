@@ -1,0 +1,13 @@
+# data files - source from Kaggle (dgawlik/nyse), not committed
+data/
+
+# python
+__pycache__/
+*.pyc
+.env
+venv/
+env/
+
+# editor
+.vscode/
+*.DS_Store
