@@ -11,3 +11,10 @@ env/
 # editor
 .vscode/
 *.DS_Store
+Thumbs.db
+
+# working notes - not portfolio-facing
+tasks/
+
+# jupyter
+.ipynb_checkpoints/
