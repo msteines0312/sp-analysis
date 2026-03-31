@@ -4,17 +4,9 @@ Explores whether R&D investment correlates with financial performance across 251
 
 ## Tech Stack
 
-- Python (pandas, matplotlib, seaborn)
+- Python (pandas, matplotlib)
 - MySQL
 - Data: Kaggle NYSE Fundamentals dataset (SEC 10-K filings, 2012-2015)
-
-## How to Run
-
-1. Clone the repo
-2. Copy `.env.example` to `.env` and fill in your MySQL credentials
-3. Apply the schema: `mysql -u root -p sp500_rd < schema.sql`
-4. Load the data: `python load_data.py`
-5. Run the analysis: `python analysis.py` (generates charts in `output/`)
 
 ## Key Features
 
@@ -27,8 +19,12 @@ Explores whether R&D investment correlates with financial performance across 251
 
 ## Key Findings
 
-_Analysis in progress. This section will be updated after queries and visualizations are complete._
+- IT and Healthcare both spent around 10-11% of revenue on R&D. Every other sector was under 1%. Financials reported essentially zero.
+- IT total R&D grew from $70B to $81B between 2013 and 2015. Healthcare went from $46B to $54B. Industrials pulled back slightly in 2015.
+- Spending more on R&D doesn't guarantee better margins. Companies at 10%+ R&D intensity showed wide margin variance, with many right around breakeven.
+- Low R&D companies grew revenue faster on average (16% vs 13% from 2012 to 2015), though that's likely a sector composition effect rather than a real tradeoff.
+- Vertex Pharmaceuticals had the highest R&D intensity at 91.7% of revenue with a -56% net margin. They're a pre-profitability biotech, so that's expected behavior, not a data problem.
 
 ## What I Learned
 
-_To be written after analysis is complete._
+First personal project where I got to choose my own dataset and pull insights that weren't already decided by a professor. As someone with a business background, it was a good return to financial numbers, and on the technical side, connecting a Python pipeline directly to a MySQL database was something I hadn't done before outside of coursework.
