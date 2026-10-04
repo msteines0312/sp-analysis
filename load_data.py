@@ -4,7 +4,7 @@ load_data.py
 Cleans the NYSE fundamentals dataset and loads it into MySQL.
 
 Run this after schema.sql has been applied:
-    mysql -u root -p sp500_rd < schema.sql
+    mysql -u root -p < schema.sql
     python load_data.py
 
 Expected files (adjust DATA_DIR if needed):
