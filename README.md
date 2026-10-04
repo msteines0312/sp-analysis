@@ -8,6 +8,31 @@ Explores whether R&D investment correlates with financial performance across 251
 - MySQL
 - Data: Kaggle NYSE Fundamentals dataset (SEC 10-K filings, 2012-2015)
 
+## How to Run
+
+Requires Python 3 and a local MySQL 8 server.
+
+1. Clone the repo and install dependencies:
+   ```bash
+   git clone https://github.com/msteines0312/sp-analysis.git
+   cd sp-analysis
+   python -m venv venv
+   source venv/bin/activate        # Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+2. Download the [NYSE dataset from Kaggle](https://www.kaggle.com/datasets/dgawlik/nyse) and put `fundamentals.csv` and `securities.csv` in a `data/` folder at the project root. The data isn't committed to this repo.
+3. Copy `.env.example` to `.env` and fill in your MySQL credentials.
+4. Create the database and tables:
+   ```bash
+   mysql -u root -p < schema.sql
+   ```
+5. Clean and load the data, then run the analysis:
+   ```bash
+   python load_data.py
+   python analysis.py
+   ```
+   Charts and the correlation table are saved to `output/`. The standalone queries in `queries/analysis.sql` can also be run directly in MySQL Workbench or the mysql CLI.
+
 ## Key Features
 
 - Normalized MySQL schema across four tables: sectors, companies, financials, and R&D spending

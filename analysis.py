@@ -11,6 +11,16 @@ load_dotenv()
 
 
 def get_conn():
+    """Open a connection to the sp500_rd database.
+
+    Credentials come from the .env file (see .env.example) so they never
+    end up in the code.
+
+    Returns
+    -------
+    mysql.connector.connection.MySQLConnection
+        An open connection. The caller is responsible for closing it.
+    """
     conn = mysql.connector.connect(
         host=os.getenv('DB_HOST'),
         user=os.getenv('DB_USER'),
@@ -21,6 +31,20 @@ def get_conn():
 
 
 def run_query(query):
+    """Run a SQL query and return the result as a DataFrame.
+
+    Opens and closes its own connection, so each query is independent.
+
+    Parameters
+    ----------
+    query : str
+        SQL to run against sp500_rd.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per result row, columns named after the SELECT aliases.
+    """
     conn = get_conn()
     df = pd.read_sql(query, conn)
     conn.close()
@@ -262,7 +286,7 @@ def chart_rd_vs_margin(df):
     # horizontal line at y=0 marks the breakeven between profit and loss
     ax.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
 
-    
+    # list clipped companies in a corner note so they're disclosed, not hidden
     if not outliers.empty:
         note_lines = ["Outliers (outside view):"]
         for _, row in outliers.iterrows():
@@ -292,10 +316,11 @@ def chart_rd_vs_margin(df):
 
 def chart_top_companies(df):
     """Bar chart: top 15 companies by avg R&D % of revenue."""
-    
+    # q3 comes back sorted high to low, so head(15) is the top 15.
+    # re-sort ascending so the highest bar lands at the top of the chart
     df = df.head(15).sort_values("avg_rd_pct_revenue")
 
-    
+    # ticker plus company name makes each bar readable without a legend
     labels = df["ticker"] + " - " + df["name"]
 
     fig, ax = plt.subplots(figsize=(10, 8))
