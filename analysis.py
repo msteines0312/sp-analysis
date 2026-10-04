@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 from dotenv import load_dotenv
+from scipy import stats
 
 load_dotenv()
 
@@ -100,6 +101,91 @@ where f.revenue > 0
 group by c.ticker, c.name, s.sector_name
 order by avg_rd_pct_revenue desc
 """
+
+# q8: company-level r&d intensity vs 2012-2015 revenue growth (feeds correlation table)
+# same definitions as q5, so only the ~118 companies with 2012 revenue are included
+q8 = """
+with company_rd as (
+    select company_id, avg(rd_pct_revenue) as avg_rd_pct
+    from rd_spending
+    group by company_id
+),
+revenue_endpoints as (
+    select
+        company_id,
+        max(case when year = 2012 then revenue end) as rev_2012,
+        max(case when year = 2015 then revenue end) as rev_2015
+    from financials
+    group by company_id
+)
+select
+    c.ticker,
+    s.sector_name,
+    rd.avg_rd_pct,
+    (re.rev_2015 - re.rev_2012) / re.rev_2012   as rev_growth,
+    rd.avg_rd_pct > 0                           as has_rd
+from companies c
+join sectors s            on s.sector_id   = c.sector_id
+join company_rd rd        on rd.company_id = c.company_id
+join revenue_endpoints re on re.company_id = c.company_id
+where re.rev_2012 > 0 and re.rev_2015 is not null
+order by s.sector_name, c.ticker
+"""
+
+
+def correlate(group):
+    """Pearson and Spearman correlation of R&D % vs revenue growth for one group.
+
+    Spearman works on ranks, so it's less sensitive to extreme companies like
+    Vertex (91.7% R&D) and to the many tied zeros from non-reporting companies.
+
+    Parameters
+    ----------
+    group : pd.DataFrame
+        Rows from q8 with avg_rd_pct and rev_growth columns.
+
+    Returns
+    -------
+    pd.Series
+        Company counts, both correlation coefficients, and their p-values.
+        Coefficients are NaN when R&D doesn't vary (e.g. no company reports it).
+    """
+    x = group["avg_rd_pct"].astype(float)
+    y = group["rev_growth"].astype(float)
+    result = {"companies": len(group), "report_rd": int((x > 0).sum())}
+
+    if len(group) < 3 or x.nunique() < 2:
+        result.update(pearson_r=np.nan, pearson_p=np.nan,
+                      spearman_r=np.nan, spearman_p=np.nan)
+    else:
+        pearson = stats.pearsonr(x, y)
+        spearman = stats.spearmanr(x, y)
+        result.update(pearson_r=pearson[0], pearson_p=pearson[1],
+                      spearman_r=spearman[0], spearman_p=spearman[1])
+    return pd.Series(result).round(3)
+
+
+def rd_growth_correlation(df):
+    """Correlation table by sector, overall, and for R&D reporters only.
+
+    Saves the table to output/rd_growth_correlation.csv and prints it.
+    """
+    by_sector = df.groupby("sector_name").apply(correlate, include_groups=False)
+
+    # extra rows: all companies, then only those that report r&d (has_rd = 1).
+    # the second row matters because zero-r&d service companies (insurers, labs,
+    # payment processors) grew fast and pull every sector's correlation negative
+    reporters = df[df["has_rd"] == 1]
+    by_sector.loc["All companies"] = correlate(df)
+    by_sector.loc["All companies (R&D reporters only)"] = correlate(reporters)
+    by_sector.loc["Health Care (R&D reporters only)"] = correlate(
+        reporters[reporters["sector_name"] == "Health Care"]
+    )
+
+    by_sector.to_csv("output/rd_growth_correlation.csv")
+    print("R&D % of revenue vs 2012-2015 revenue growth:")
+    print(by_sector.to_string())
+    print("correlation table saved.")
 
 
 def chart_sector_rd_pct(df):
@@ -230,14 +316,16 @@ def main():
     df_q2 = run_query(q2)
     df_q3 = run_query(q3)
     df_q4 = run_query(q4)
+    df_q8 = run_query(q8)
     print("queries complete.\n")
 
     chart_sector_rd_pct(df_q1)
     chart_rd_trend(df_q2)
     chart_rd_vs_margin(df_q4)
     chart_top_companies(df_q3)
+    rd_growth_correlation(df_q8)
 
-    print("\nall charts saved to output/")
+    print("\nall outputs saved to output/")
 
 
 if __name__ == "__main__":

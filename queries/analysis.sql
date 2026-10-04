@@ -172,3 +172,39 @@ above_median as (
 select *
 from above_median
 order by sector_name, ticker;
+
+
+-- q8: company-level r&d intensity vs revenue growth, for correlation analysis
+-- same variable definitions as q5: avg rd_pct_revenue across all years,
+-- and revenue growth from 2012 to 2015 (so this is also the ~118-company subset).
+-- mysql has no corr() function, so this returns one row per company and
+-- analysis.py computes pearson and spearman correlations by sector.
+-- note: rd_pct_revenue = 0 usually means the company didn't report r&d
+-- separately, not that it spent nothing. has_rd lets us test with and without them.
+with company_rd as (
+    select
+        company_id,
+        avg(rd_pct_revenue) as avg_rd_pct
+    from rd_spending
+    group by company_id
+),
+revenue_endpoints as (
+    select
+        company_id,
+        max(case when year = 2012 then revenue end) as rev_2012,
+        max(case when year = 2015 then revenue end) as rev_2015
+    from financials
+    group by company_id
+)
+select
+    c.ticker,
+    s.sector_name,
+    rd.avg_rd_pct,
+    (re.rev_2015 - re.rev_2012) / re.rev_2012   as rev_growth,
+    rd.avg_rd_pct > 0                           as has_rd
+from companies c
+join sectors s            on s.sector_id   = c.sector_id
+join company_rd rd        on rd.company_id = c.company_id
+join revenue_endpoints re on re.company_id = c.company_id
+where re.rev_2012 > 0 and re.rev_2015 is not null
+order by s.sector_name, c.ticker;
