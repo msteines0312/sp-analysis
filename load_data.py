@@ -26,7 +26,7 @@ DB = dict(
     host=os.getenv("DB_HOST", "localhost"),
     user=os.getenv("DB_USER", "root"),
     password=os.getenv("DB_PASSWORD"),
-    database=os.getenv("DB_NAME", "sp500_rd"),
+    database="sp500_rd",   # fixed name, matching schema.sql
 )
 
 SECTORS_IN_SCOPE = [
@@ -62,6 +62,44 @@ def load_raw():
 
 
 # --- clean ------------------------------------------------------------
+def fix_duplicate_year_labels(fund):
+    """Relabel filings whose "For Year" collides with another filing from the same company.
+
+    A few companies have two filings tagged with the same year. For ANTM and R,
+    the December 2014 filing is labeled 2013, so 2013 appears twice and 2014 is
+    missing. For a colliding row, the period-end year is the better label.
+
+    Parameters
+    ----------
+    fund : pd.DataFrame
+        Raw fundamentals with "Ticker Symbol", "For Year" and "Period Ending".
+
+    Returns
+    -------
+    pd.DataFrame
+        The same frame with conflicting year labels corrected.
+
+    Raises
+    ------
+    ValueError
+        If any (ticker, year) pair is still duplicated after relabeling, so a
+        new data problem fails loudly instead of one row being silently kept.
+    """
+    period_year = pd.to_datetime(fund["Period Ending"]).dt.year
+    collides = fund.duplicated(["Ticker Symbol", "For Year"], keep=False)
+    relabel = collides & (fund["For Year"] != period_year)
+
+    fund = fund.copy()
+    fund.loc[relabel, "For Year"] = period_year[relabel]
+    print(f"Relabeled {relabel.sum()} filings whose year collided with another filing")
+
+    still_duplicated = fund.duplicated(["Ticker Symbol", "For Year"], keep=False)
+    if still_duplicated.any():
+        dupes = fund.loc[still_duplicated, ["Ticker Symbol", "For Year", "Period Ending"]]
+        raise ValueError(f"Duplicate company-year filings remain:\n{dupes}")
+    return fund
+
+
 def clean(fund, sec):
     # 173 rows have a blank "For Year" but a valid "Period Ending" date.
     # fill those from the period-end year instead of dropping them. that matches
@@ -91,6 +129,8 @@ def clean(fund, sec):
         fund.loc[blank_year, "Period Ending"]
     ).dt.year
     print(f"Filled {blank_year.sum()} blank 'For Year' values from 'Period Ending'")
+
+    fund = fix_duplicate_year_labels(fund)
 
     # keep only complete years (2016 is partial - only ~85 rows).
     # this also drops the one bad-year row (For Year = 1215, data entry error)
@@ -166,11 +206,23 @@ def get_connection():
     return mysql.connector.connect(**DB)
 
 
+def clear_tables(cursor):
+    """Delete all rows so each run rebuilds the database from the current CSVs.
+
+    Children are cleared before parents so foreign keys are never violated.
+    This runs in the same transaction as the inserts, so if any insert fails,
+    the rollback restores the previous data instead of leaving it half-loaded.
+    """
+    for table in ["rd_spending", "financials", "companies", "sectors"]:
+        cursor.execute(f"delete from {table}")
+    print("Cleared existing rows")
+
+
 def insert_sectors(cursor):
     """Insert the 5 sectors with their R&D intensity classifications."""
     rows = [(name, SECTOR_RD_INTENSITY[name]) for name in SECTORS_IN_SCOPE]
     cursor.executemany(
-        "insert ignore into sectors (sector_name, rd_intensity) values (%s, %s)",
+        "insert into sectors (sector_name, rd_intensity) values (%s, %s)",
         rows,
     )
     print(f"\nInserted {cursor.rowcount} sectors")
@@ -194,7 +246,7 @@ def insert_companies(cursor, df, sector_lookup):
         for r in companies.itertuples()
     ]
     cursor.executemany(
-        "insert ignore into companies (ticker, name, sector_id, market_cap_tier) values (%s, %s, %s, %s)",
+        "insert into companies (ticker, name, sector_id, market_cap_tier) values (%s, %s, %s, %s)",
         rows,
     )
     print(f"Inserted {cursor.rowcount} companies")
@@ -219,7 +271,7 @@ def insert_financials(cursor, df, company_lookup):
         ))
 
     cursor.executemany(
-        """insert ignore into financials
+        """insert into financials
            (company_id, year, revenue, net_income, operating_income)
            values (%s, %s, %s, %s, %s)""",
         rows,
@@ -241,7 +293,7 @@ def insert_rd_spending(cursor, df, company_lookup):
         ))
 
     cursor.executemany(
-        """insert ignore into rd_spending
+        """insert into rd_spending
            (company_id, year, rd_expense, rd_pct_revenue)
            values (%s, %s, %s, %s)""",
         rows,
@@ -262,14 +314,21 @@ def main():
     conn = get_connection()
     cursor = conn.cursor()
 
-    sector_lookup  = insert_sectors(cursor)
-    company_lookup = insert_companies(cursor, df, sector_lookup)
-    insert_financials(cursor, df, company_lookup)
-    insert_rd_spending(cursor, df, company_lookup)
-
-    conn.commit()
-    cursor.close()
-    conn.close()
+    # one transaction for the whole reload: either every table is rebuilt,
+    # or the rollback leaves the previous load untouched
+    try:
+        clear_tables(cursor)
+        sector_lookup  = insert_sectors(cursor)
+        company_lookup = insert_companies(cursor, df, sector_lookup)
+        insert_financials(cursor, df, company_lookup)
+        insert_rd_spending(cursor, df, company_lookup)
+        conn.commit()
+    except mysql.connector.Error:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
     print("\nDone. Run verification queries to confirm row counts.")
 
 
