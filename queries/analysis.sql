@@ -99,6 +99,9 @@ with company_rd_class as (
         end as rd_class
     from rd_spending
     group by company_id
+    -- a company with no computable r&d % in any year would otherwise fall
+    -- through to the else branch and be labeled low r&d
+    having avg(rd_pct_revenue) is not null
 ),
 revenue_endpoints as (
     select
@@ -190,12 +193,18 @@ order by sector_name, ticker;
 -- analysis.py computes pearson and spearman correlations by sector.
 -- note: rd_pct_revenue = 0 usually means the company didn't report r&d
 -- separately, not that it spent nothing. has_rd lets us test with and without them.
+-- has_rd checks the raw dollar amount, not the percentage, because rd_pct_revenue
+-- is rounded to 4 decimals and a very small r&d budget can round down to 0.
 with company_rd as (
     select
         company_id,
-        avg(rd_pct_revenue) as avg_rd_pct
+        avg(rd_pct_revenue)  as avg_rd_pct,
+        max(rd_expense) > 0  as has_rd
     from rd_spending
     group by company_id
+    -- skip companies with no computable r&d % in any year, so a null average
+    -- can't reach the correlation step
+    having avg(rd_pct_revenue) is not null
 ),
 revenue_endpoints as (
     select
@@ -210,7 +219,7 @@ select
     s.sector_name,
     rd.avg_rd_pct,
     (re.rev_2015 - re.rev_2012) / re.rev_2012   as rev_growth,
-    rd.avg_rd_pct > 0                           as has_rd
+    rd.has_rd
 from companies c
 join sectors s            on s.sector_id   = c.sector_id
 join company_rd rd        on rd.company_id = c.company_id

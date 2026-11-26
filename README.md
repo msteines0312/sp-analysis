@@ -31,7 +31,7 @@ Requires Python 3 and a local MySQL 8 server.
    python load_data.py
    python analysis.py
    ```
-   Charts and the correlation table are saved to `output/`. The standalone queries in `queries/analysis.sql` can also be run directly in MySQL Workbench or the mysql CLI.
+   Charts and the correlation table are saved to `output/`. `analysis.py` reads its queries from `queries/analysis.sql`, so the same file can also be run directly in MySQL Workbench or the mysql CLI. Re-running `load_data.py` clears and rebuilds the tables, so it's safe to run again after changing the data or cleaning logic.
 
 ## Key Features
 

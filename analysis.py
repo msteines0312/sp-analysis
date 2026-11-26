@@ -1,4 +1,7 @@
 import os
+import re
+from pathlib import Path
+
 import pandas as pd
 import mysql.connector
 import matplotlib.pyplot as plt
@@ -8,6 +11,10 @@ from dotenv import load_dotenv
 from scipy import stats
 
 load_dotenv()
+
+# fixed database name, matching schema.sql and queries/analysis.sql
+DB_NAME = "sp500_rd"
+QUERIES_PATH = Path("queries") / "analysis.sql"
 
 
 def get_conn():
@@ -25,7 +32,7 @@ def get_conn():
         host=os.getenv('DB_HOST'),
         user=os.getenv('DB_USER'),
         password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME')
+        database=DB_NAME
     )
     return conn
 
@@ -51,113 +58,36 @@ def run_query(query):
     return df
 
 
-# q1: avg r&d spend and r&d % of revenue by sector
-# rd_expense = 0 means "didn't report r&d", so those rows are nulled out of the
-# averages instead of being counted as 0% spend (see queries/analysis.sql)
-q1 = """
-select
-    s.sector_name,
-    count(distinct case when r.rd_expense > 0 then c.company_id end) as companies_reporting_rd,
-    round(avg(case when r.rd_expense > 0 then r.rd_expense end) / 1e9, 2)     as avg_rd_spend_billions,
-    round(avg(case when r.rd_expense > 0 then r.rd_pct_revenue end) * 100, 2) as avg_rd_pct_revenue
-from sectors s
-join companies c   on c.sector_id   = s.sector_id
-join rd_spending r on r.company_id  = c.company_id
-group by s.sector_name
-order by avg_rd_pct_revenue desc
-"""
+def load_queries(path=QUERIES_PATH):
+    """Read the named queries from queries/analysis.sql.
 
-# q2: year-over-year r&d growth by sector (2013-2015 only)
-# 2012 data is incomplete (~123 of 256 companies), so growth is scoped to 2013+
-q2 = """
-with sector_yearly as (
-    select
-        s.sector_name,
-        r.year,
-        sum(r.rd_expense) as total_rd
-    from sectors s
-    join companies c   on c.sector_id   = s.sector_id
-    join rd_spending r on r.company_id  = c.company_id
-    where r.rd_expense is not null
-      and r.year >= 2013
-    group by s.sector_name, r.year
-)
-select
-    sector_name,
-    year,
-    round(total_rd / 1e9, 2) as total_rd_billions,
-    round(
-        (total_rd - lag(total_rd) over (partition by sector_name order by year))
-        / lag(total_rd) over (partition by sector_name order by year) * 100,
-        2
-    ) as yoy_growth_pct
-from sector_yearly
-order by sector_name, year
-"""
+    The .sql file is the single source of truth for every query, so the charts
+    always use the same logic a reader sees when running the file directly.
+    Each query starts with a "-- qN:" comment, which is used as its name.
 
-# q3: top 20 companies by r&d % of revenue (averaged across years they reported r&d)
-q3 = """
-select
-    c.ticker,
-    c.name,
-    s.sector_name,
-    c.market_cap_tier,
-    round(avg(r.rd_pct_revenue) * 100, 2) as avg_rd_pct_revenue
-from companies c
-join sectors s     on s.sector_id   = c.sector_id
-join rd_spending r on r.company_id  = c.company_id
-where r.rd_expense > 0
-group by c.ticker, c.name, s.sector_name, c.market_cap_tier
-order by avg_rd_pct_revenue desc
-limit 20
-"""
+    Parameters
+    ----------
+    path : str or Path
+        Location of the SQL file.
 
-# q4: r&d intensity vs net income margin, one row per company (feeds scatter plot)
-q4 = """
-select
-    c.ticker,
-    c.name,
-    s.sector_name,
-    round(avg(r.rd_pct_revenue) * 100, 2)           as avg_rd_pct_revenue,
-    round(avg(f.net_income / f.revenue) * 100, 2)   as avg_net_margin_pct
-from companies c
-join sectors s     on s.sector_id   = c.sector_id
-join rd_spending r on r.company_id  = c.company_id and r.rd_pct_revenue is not null
-join financials f  on f.company_id  = c.company_id and f.year = r.year
-where f.revenue > 0
-group by c.ticker, c.name, s.sector_name
-order by avg_rd_pct_revenue desc
-"""
+    Returns
+    -------
+    dict of str to str
+        Query name ("q1", "q2", ...) mapped to its SQL, without the trailing semicolon.
+    """
+    text = Path(path).read_text(encoding="utf-8")
 
-# q8: company-level r&d intensity vs 2012-2015 revenue growth (feeds correlation table)
-# same definitions as q5, so only the ~123 companies with 2012 revenue are included
-q8 = """
-with company_rd as (
-    select company_id, avg(rd_pct_revenue) as avg_rd_pct
-    from rd_spending
-    group by company_id
-),
-revenue_endpoints as (
-    select
-        company_id,
-        max(case when year = 2012 then revenue end) as rev_2012,
-        max(case when year = 2015 then revenue end) as rev_2015
-    from financials
-    group by company_id
-)
-select
-    c.ticker,
-    s.sector_name,
-    rd.avg_rd_pct,
-    (re.rev_2015 - re.rev_2012) / re.rev_2012   as rev_growth,
-    rd.avg_rd_pct > 0                           as has_rd
-from companies c
-join sectors s            on s.sector_id   = c.sector_id
-join company_rd rd        on rd.company_id = c.company_id
-join revenue_endpoints re on re.company_id = c.company_id
-where re.rev_2012 > 0 and re.rev_2015 is not null
-order by s.sector_name, c.ticker
-"""
+    # split right before each "-- qN:" line with a zero-width lookahead, so the
+    # header stays a complete sql comment. consuming it in the split would leave
+    # the rest of the title line behind as invalid sql.
+    # the first chunk is the file header and "use sp500_rd;", which isn't needed
+    # because the connection already selects the database
+    chunks = re.split(r"^(?=-- q\d+:)", text, flags=re.MULTILINE)[1:]
+    queries = {}
+    for chunk in chunks:
+        name = re.match(r"-- (q\d+):", chunk).group(1)
+        queries[name] = chunk.strip().rstrip(";")
+    return queries
 
 
 def correlate(group):
@@ -177,9 +107,12 @@ def correlate(group):
         Company counts, both correlation coefficients, and their p-values.
         Coefficients are NaN when R&D doesn't vary (e.g. no company reports it).
     """
+    # drop incomplete pairs first. scipy returns NaN if either input has one,
+    # which would blank out the whole row instead of skipping one company
+    group = group.dropna(subset=["avg_rd_pct", "rev_growth"])
     x = group["avg_rd_pct"].astype(float)
     y = group["rev_growth"].astype(float)
-    result = {"companies": len(group), "report_rd": int((x > 0).sum())}
+    result = {"companies": len(group), "report_rd": int(group["has_rd"].sum())}
 
     if len(group) < 3 or x.nunique() < 2:
         result.update(pearson_r=np.nan, pearson_p=np.nan,
@@ -346,11 +279,12 @@ def chart_top_companies(df):
 
 def main():
     print("running queries...")
-    df_q1 = run_query(q1)
-    df_q2 = run_query(q2)
-    df_q3 = run_query(q3)
-    df_q4 = run_query(q4)
-    df_q8 = run_query(q8)
+    queries = load_queries()
+    df_q1 = run_query(queries["q1"])
+    df_q2 = run_query(queries["q2"])
+    df_q3 = run_query(queries["q3"])
+    df_q4 = run_query(queries["q4"])
+    df_q8 = run_query(queries["q8"])
     print("queries complete.\n")
 
     chart_sector_rd_pct(df_q1)
