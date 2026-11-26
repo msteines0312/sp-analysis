@@ -1,9 +1,12 @@
 sector_name,companies,report_rd,pearson_r,pearson_p,spearman_r,spearman_p
-Consumer Staples,10.0,1.0,-0.008,0.982,0.058,0.873
-Financials,39.0,0.0,,,,
-Health Care,25.0,15.0,-0.25,0.228,-0.512,0.009
+Consumer Staples,11.0,1.0,0.049,0.885,0.1,0.77
+Financials,42.0,0.0,,,,
+Health Care,26.0,16.0,-0.25,0.217,-0.489,0.011
 Industrials,26.0,7.0,-0.162,0.429,-0.218,0.284
 Information Technology,18.0,11.0,-0.396,0.103,-0.448,0.063
-All companies,118.0,34.0,-0.12,0.194,-0.185,0.045
-All companies (R&D reporters only),34.0,34.0,-0.16,0.365,-0.272,0.119
-Health Care (R&D reporters only),15.0,15.0,-0.223,0.425,-0.611,0.016
+All companies,123.0,35.0,-0.109,0.23,-0.149,0.1
+All companies (R&D reporters only),35.0,35.0,-0.157,0.366,-0.238,0.168
+Consumer Staples (R&D reporters only),1.0,1.0,,,,
+Health Care (R&D reporters only),16.0,16.0,-0.223,0.406,-0.547,0.028
+Industrials (R&D reporters only),7.0,7.0,-0.011,0.982,0.071,0.879
+Information Technology (R&D reporters only),11.0,11.0,-0.038,0.911,0.218,0.519

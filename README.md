@@ -1,6 +1,6 @@
 # S&P 500 R&D Spending Analysis
 
-Explores whether R&D investment correlates with financial performance across 251 S&P 500 companies from 2012 to 2015, using SEC 10-K filing data across five sectors.
+Explores whether R&D investment correlates with financial performance across 256 S&P 500 companies from 2012 to 2015, using SEC 10-K filing data across five sectors.
 
 ## Tech Stack
 
@@ -36,7 +36,7 @@ Requires Python 3 and a local MySQL 8 server.
 ## Key Features
 
 - Normalized MySQL schema across four tables: sectors, companies, financials, and R&D spending
-- ETL pipeline that cleans and loads 251 companies across 5 sectors and 4 years of filings
+- ETL pipeline that cleans and loads 256 companies across 5 sectors and 4 years of filings
 - R&D intensity classifications assigned per sector based on typical reporting behavior
 - Revenue-based market cap tier derivation (Large, Mid, Small) used as a size proxy
 - Eight analytical SQL queries covering sector trends, company rankings, and R&D vs. growth comparisons
@@ -45,13 +45,13 @@ Requires Python 3 and a local MySQL 8 server.
 
 ## Key Findings
 
-- IT and Healthcare both spent around 10-11% of revenue on R&D. Every other sector was under 1%. Financials reported essentially zero.
-- IT total R&D grew from $70B to $81B between 2013 and 2015. Healthcare went from $46B to $54B. Industrials pulled back slightly in 2015.
+- Among companies that report R&D, Health Care spent 15.4% of revenue on it and IT spent 13.8%. Industrials (3.3%) and Consumer Staples (2.2%) were far lower, and most companies in those sectors and in Financials (13 of 62, 3 of 31, and 1 of 53) do not report R&D separately at all.
+- IT total R&D grew from $70B to $86B between 2013 and 2015. Healthcare went from $46B to $55B. Industrials pulled back slightly in 2015.
 - Spending more on R&D doesn't guarantee better margins. Companies at 10%+ R&D intensity showed wide margin variance, with many right around breakeven.
-- Low R&D companies grew revenue faster on average (16% vs 13% from 2012 to 2015), though that's likely a sector composition effect rather than a real tradeoff.
-- R&D intensity had no positive link to 2012-2015 revenue growth across the 118 companies with data for both years (Pearson r = -0.12, p = 0.19). Dropping Vertex alone moves that to -0.02.
-- Health Care was the one sector with a significant relationship, and it was negative (Spearman rho = -0.51, p = 0.009). Big pharma (Pfizer, Merck, Lilly, Bristol-Myers) spent 15-27% of revenue on R&D while sales shrank through the patent cliff, while zero-R&D service companies like Centene and DaVita were among the fastest growers.
-- The IT and Industrials correlations look negative at first but drop to roughly zero once companies that don't report R&D are excluded, so they reflect business model differences more than R&D itself.
+- Low R&D companies grew revenue faster on average (15% vs 14% from 2012 to 2015), though that's likely a sector composition effect rather than a real tradeoff.
+- R&D intensity had no positive link to 2012-2015 revenue growth across the 123 companies with data for both years (Pearson r = -0.11, p = 0.23). Dropping Vertex alone moves that to roughly zero (-0.003).
+- Health Care was the one sector with a significant relationship, and it was negative (Spearman rho = -0.49, p = 0.011). Big pharma (Pfizer, Merck, Lilly, Bristol-Myers) spent 15-27% of revenue on R&D while sales shrank through the patent cliff, while zero-R&D service companies like Centene and DaVita were among the fastest growers.
+- The IT and Industrials correlations look negative at first but drop to roughly zero once companies that don't report R&D are excluded (Pearson r goes from -0.40 to -0.04 for IT and from -0.16 to -0.01 for Industrials), so they reflect business model differences more than R&D itself.
 - Vertex Pharmaceuticals had the highest R&D intensity at 91.7% of revenue with a -56% net margin. They're a pre-profitability biotech, so that's expected behavior, not a data problem.
 
 ## What I Learned
