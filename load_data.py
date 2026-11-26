@@ -63,10 +63,37 @@ def load_raw():
 
 # --- clean ------------------------------------------------------------
 def clean(fund, sec):
-    # drop the one bad-year row (For Year = 1215, data entry error)
-    fund = fund[fund["For Year"].between(2010, 2020)].copy()
+    # 173 rows have a blank "For Year" but a valid "Period Ending" date.
+    # fill those from the period-end year instead of dropping them. that matches
+    # the "For Year" label for 94% of rows that have one, and the filled rows
+    # don't collide with any existing ticker-year. the exception is fiscal years
+    # ending in Jan-Mar, which the source labels inconsistently either way.
+    #
+    # some blank-year rows are exact copies of another ticker's filing: dual-class
+    # shares (DISCK/DISCA, NWS/NWSA, UAA/UA) and one corrupted case where
+    # Regeneron's 2013-2015 filings appear under P&G's ticker. drop those first,
+    # otherwise the fill below would invent a fake "P&G" with ~40% R&D intensity.
+    filing_key = ["Period Ending", "Total Revenue", "Net Income"]
+    labeled = fund[fund["For Year"].notna()]
+    # reset_index keeps the original row index as a column, since merge discards it
+    copies = fund.reset_index().merge(labeled[filing_key + ["Ticker Symbol"]],
+                        on=filing_key, suffixes=("", "_other"))
+    copied_idx = copies.loc[
+        copies["For Year"].isna()
+        & (copies["Ticker Symbol"] != copies["Ticker Symbol_other"]),
+        "index",
+    ]
+    fund = fund.drop(index=copied_idx)
+    print(f"Dropped {copied_idx.nunique()} blank-year rows that copy another ticker's filing")
 
-    # keep only complete years (2016 is partial - only ~85 rows)
+    blank_year = fund["For Year"].isna()
+    fund.loc[blank_year, "For Year"] = pd.to_datetime(
+        fund.loc[blank_year, "Period Ending"]
+    ).dt.year
+    print(f"Filled {blank_year.sum()} blank 'For Year' values from 'Period Ending'")
+
+    # keep only complete years (2016 is partial - only ~85 rows).
+    # this also drops the one bad-year row (For Year = 1215, data entry error)
     fund = fund[fund["For Year"].isin([2012, 2013, 2014, 2015])].copy()
     fund["year"] = fund["For Year"].astype(int)
 
