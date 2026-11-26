@@ -52,11 +52,14 @@ def run_query(query):
 
 
 # q1: avg r&d spend and r&d % of revenue by sector
+# rd_expense = 0 means "didn't report r&d", so those rows are nulled out of the
+# averages instead of being counted as 0% spend (see queries/analysis.sql)
 q1 = """
 select
     s.sector_name,
-    round(avg(r.rd_expense) / 1e9, 2)      as avg_rd_spend_billions,
-    round(avg(r.rd_pct_revenue) * 100, 2)  as avg_rd_pct_revenue
+    count(distinct case when r.rd_expense > 0 then c.company_id end) as companies_reporting_rd,
+    round(avg(case when r.rd_expense > 0 then r.rd_expense end) / 1e9, 2)     as avg_rd_spend_billions,
+    round(avg(case when r.rd_expense > 0 then r.rd_pct_revenue end) * 100, 2) as avg_rd_pct_revenue
 from sectors s
 join companies c   on c.sector_id   = s.sector_id
 join rd_spending r on r.company_id  = c.company_id
@@ -65,7 +68,7 @@ order by avg_rd_pct_revenue desc
 """
 
 # q2: year-over-year r&d growth by sector (2013-2015 only)
-# 2012 data is incomplete (~119 of 251 companies), so growth is scoped to 2013+
+# 2012 data is incomplete (~123 of 256 companies), so growth is scoped to 2013+
 q2 = """
 with sector_yearly as (
     select
@@ -92,7 +95,7 @@ from sector_yearly
 order by sector_name, year
 """
 
-# q3: top 20 companies by r&d % of revenue (averaged across all years)
+# q3: top 20 companies by r&d % of revenue (averaged across years they reported r&d)
 q3 = """
 select
     c.ticker,
@@ -103,7 +106,7 @@ select
 from companies c
 join sectors s     on s.sector_id   = c.sector_id
 join rd_spending r on r.company_id  = c.company_id
-where r.rd_pct_revenue is not null
+where r.rd_expense > 0
 group by c.ticker, c.name, s.sector_name, c.market_cap_tier
 order by avg_rd_pct_revenue desc
 limit 20
@@ -127,7 +130,7 @@ order by avg_rd_pct_revenue desc
 """
 
 # q8: company-level r&d intensity vs 2012-2015 revenue growth (feeds correlation table)
-# same definitions as q5, so only the ~118 companies with 2012 revenue are included
+# same definitions as q5, so only the ~123 companies with 2012 revenue are included
 q8 = """
 with company_rd as (
     select company_id, avg(rd_pct_revenue) as avg_rd_pct
@@ -202,9 +205,11 @@ def rd_growth_correlation(df):
     reporters = df[df["has_rd"] == 1]
     by_sector.loc["All companies"] = correlate(df)
     by_sector.loc["All companies (R&D reporters only)"] = correlate(reporters)
-    by_sector.loc["Health Care (R&D reporters only)"] = correlate(
-        reporters[reporters["sector_name"] == "Health Care"]
-    )
+
+    # reporters-only row for every sector, so the with/without comparison
+    # can be checked for each one, not just Health Care
+    for sector, group in reporters.groupby("sector_name"):
+        by_sector.loc[f"{sector} (R&D reporters only)"] = correlate(group)
 
     by_sector.to_csv("output/rd_growth_correlation.csv")
     print("R&D % of revenue vs 2012-2015 revenue growth:")
@@ -217,10 +222,14 @@ def chart_sector_rd_pct(df):
     # sort ascending so the highest bar appears at the top of a horizontal chart
     df = df.sort_values("avg_rd_pct_revenue")
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.barh(df["sector_name"], df["avg_rd_pct_revenue"], color="steelblue")
+    # averages only cover companies that report r&d, which is as few as one in
+    # some sectors, so the sample size goes in each label to keep that visible
+    labels = df["sector_name"] + " (n=" + df["companies_reporting_rd"].astype(str) + ")"
 
-    ax.set_title("Average R&D Spending as % of Revenue by Sector (2012-2015)")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(labels, df["avg_rd_pct_revenue"], color="steelblue")
+
+    ax.set_title("Average R&D Spending as % of Revenue by Sector, R&D Reporters Only (2012-2015)")
     ax.set_xlabel("Avg R&D as % of Revenue")
     ax.set_ylabel("Sector")
 

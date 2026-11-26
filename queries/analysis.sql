@@ -5,12 +5,15 @@ use sp500_rd;
 
 
 -- q1: avg r&d spend and r&d % of revenue by sector
--- avg() skips nulls automatically, so sectors that rarely report r&d
--- (financials, consumer staples) will have a smaller effective sample
+-- the source stores "didn't report r&d separately" as 0, not blank, so a plain
+-- avg() would count non-reporters as spending 0%. the case expressions turn
+-- those zeros into nulls, which avg() skips, so each average only covers
+-- companies that actually reported r&d. companies_reporting_rd shows that sample.
 select
     s.sector_name,
-    round(avg(r.rd_expense) / 1e9, 2)      as avg_rd_spend_billions,
-    round(avg(r.rd_pct_revenue) * 100, 2)  as avg_rd_pct_revenue
+    count(distinct case when r.rd_expense > 0 then c.company_id end) as companies_reporting_rd,
+    round(avg(case when r.rd_expense > 0 then r.rd_expense end) / 1e9, 2)     as avg_rd_spend_billions,
+    round(avg(case when r.rd_expense > 0 then r.rd_pct_revenue end) * 100, 2) as avg_rd_pct_revenue
 from sectors s
 join companies c   on c.sector_id   = s.sector_id
 join rd_spending r on r.company_id  = c.company_id
@@ -19,7 +22,7 @@ order by avg_rd_pct_revenue desc;
 
 
 -- q2: year-over-year r&d growth by sector (2013-2015 only)
--- 2012 only has ~119 of 251 companies due to incomplete source data,
+-- 2012 only has ~123 of 256 companies due to incomplete source data,
 -- so including it would make 2013 look like a 500%+ growth year.
 -- filtering to 2013+ gives a consistent sample and two clean YoY comparisons.
 with sector_yearly as (
@@ -48,7 +51,7 @@ order by sector_name, year;
 
 
 -- q3: top 20 companies by r&d % of revenue (averaged across all 4 years)
--- filters out companies that never reported r&d
+-- only years where the company reported r&d (rd_expense > 0) are averaged
 select
     c.ticker,
     c.name,
@@ -58,7 +61,7 @@ select
 from companies c
 join sectors s     on s.sector_id   = c.sector_id
 join rd_spending r on r.company_id  = c.company_id
-where r.rd_pct_revenue is not null
+where r.rd_expense > 0
 group by c.ticker, c.name, s.sector_name, c.market_cap_tier
 order by avg_rd_pct_revenue desc
 limit 20;
@@ -84,7 +87,7 @@ order by avg_rd_pct_revenue desc;
 
 -- q5: revenue growth 2012-2015 for high vs low r&d spenders
 -- "high" = avg rd_pct_revenue >= 5% across all years (judgment call)
--- note: only 119 of 251 companies have 2012 revenue data (source limitation),
+-- note: only 123 of 256 companies have 2012 revenue data (source limitation),
 -- so this result is based on that subset, not the full dataset.
 -- pivoting 2012 and 2015 revenue into one row per company to compute growth
 with company_rd_class as (
@@ -118,19 +121,22 @@ order by rc.rd_class;
 
 -- q6: r&d spending broken down by market cap tier
 -- field() forces the order large > mid > small instead of alphabetical
+-- averages skip non-reporting zeros the same way q1 does
 select
     c.market_cap_tier,
     count(distinct c.company_id)           as company_count,
-    round(avg(r.rd_expense) / 1e9, 2)      as avg_rd_spend_billions,
-    round(avg(r.rd_pct_revenue) * 100, 2)  as avg_rd_pct_revenue
+    count(distinct case when r.rd_expense > 0 then c.company_id end) as companies_reporting_rd,
+    round(avg(case when r.rd_expense > 0 then r.rd_expense end) / 1e9, 2)     as avg_rd_spend_billions,
+    round(avg(case when r.rd_expense > 0 then r.rd_pct_revenue end) * 100, 2) as avg_rd_pct_revenue
 from companies c
 join rd_spending r on r.company_id = c.company_id
-where r.rd_pct_revenue is not null
 group by c.market_cap_tier
 order by field(c.market_cap_tier, 'Large', 'Mid', 'Small');
 
 
--- q7: companies that were above their sector median in r&d % every single year
+-- q7: companies that were above their sector median in r&d % every year, 2013-2015
+-- scoped to 2013+ like q2: most companies have no 2012 row, so requiring all
+-- four years would silently exclude over half the dataset.
 -- mysql doesn't have median(), so i'm using row_number + count to find
 -- the middle row(s) per sector-year, then averaging them for even-sized groups
 with ranked as (
@@ -146,7 +152,10 @@ with ranked as (
     from companies c
     join sectors s     on s.sector_id  = c.sector_id
     join rd_spending r on r.company_id = c.company_id
-    where r.rd_pct_revenue is not null
+    -- rd_expense > 0 keeps non-reporting zeros out of the median (same fix as q1).
+    -- otherwise any reporter beats a median of 0 in low-reporting sectors
+    where r.rd_expense > 0
+      and r.year >= 2013
 ),
 sector_medians as (
     select
@@ -167,7 +176,7 @@ above_median as (
     join sector_medians m on m.sector_name = r.sector_name and m.year = r.year
     where r.rd_pct_revenue > m.median_rd_pct
     group by r.company_id, r.ticker, r.name, r.sector_name
-    having count(*) = 4
+    having count(*) = 3
 )
 select *
 from above_median
@@ -176,7 +185,7 @@ order by sector_name, ticker;
 
 -- q8: company-level r&d intensity vs revenue growth, for correlation analysis
 -- same variable definitions as q5: avg rd_pct_revenue across all years,
--- and revenue growth from 2012 to 2015 (so this is also the ~118-company subset).
+-- and revenue growth from 2012 to 2015 (so this is also the ~123-company subset).
 -- mysql has no corr() function, so this returns one row per company and
 -- analysis.py computes pearson and spearman correlations by sector.
 -- note: rd_pct_revenue = 0 usually means the company didn't report r&d
